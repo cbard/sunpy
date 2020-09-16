@@ -9,16 +9,32 @@ import scipy.ndimage.interpolation
 
 from sunpy.util.exceptions import SunpyUserWarning
 
+try:
+    import cv2
+    HAS_CV = True
+except ImportError:
+    HAS_CV = False
+
 __all__ = ['affine_transform']
 
+# Flags for converting input order to appropriate cv2 interpolation flag
+_CV_ORDER_FLAGS = {
+    0: cv2.INTER_NEAREST,
+    1: cv2.INTER_LINEAR,
+    2: cv2.INTER_CUBIC,
+    3: cv2.INTER_CUBIC,
+    4: cv2.INTER_CUBIC
+}
 
 def affine_transform(image, rmatrix, order=3, scale=1.0, image_center=None,
-                     recenter=False, missing=0.0, use_scipy=False):
+                     recenter=False, missing=0.0, use_scipy=False, use_cv2=False):
     """
     Rotates, shifts and scales an image.
 
     Will use `skimage.transform.warp` unless scikit-image can't be imported
     then it will use`scipy.ndimage.affine_transform`.
+    If `use_cv2` flag is enabled, will use `cv2.warpAffine`; otherwise will
+    default to above behavior.
 
     Parameters
     ----------
@@ -45,6 +61,10 @@ def affine_transform(image, rmatrix, order=3, scale=1.0, image_center=None,
         Force use of `scipy.ndimage.affine_transform`.
         Will set all "NaNs" in image to zero before doing the transform.
         Defaults to `False`, unless scikit-image can't be imported.
+    use_cv2 : `bool`, optional
+        Force use of `cv2.warpAffine`
+        Will override `use_scipy`; if cv2 can't be imported, then function 
+        will default to behavior defined by `use_scipy`
 
     Returns
     -------
@@ -58,11 +78,18 @@ def affine_transform(image, rmatrix, order=3, scale=1.0, image_center=None,
     One can specify using `scipy.ndimage.affine_transform` as
     an alternative affine transformation. The two transformations use different
     algorithms and thus do not give identical output.
+    One can also specify using `cv2.warpAffine` as an alternative affine
+    transformation. This also uses a different algorithm, and does not give
+    identical output.
 
     When using for `skimage.transform.warp` with order >= 4 or using
     `scipy.ndimage.affine_transform` at all, "NaN" values will
     replaced with zero prior to rotation. No attempt is made to retain the NaN
     values.
+
+    When using for `cv2.warpAffine`, only order = 0, 1, 3 are accepted.
+    order = 2 or order > 3 will default to order = 3.
+    order < 0 will default to 0.
 
     Input arrays with integer data are cast to float 64 and can be re-cast using
     `numpy.ndarray.astype` if desired.
@@ -92,7 +119,45 @@ def affine_transform(image, rmatrix, order=3, scale=1.0, image_center=None,
 
     displacement = np.dot(rmatrix, rot_center)
     shift = image_center - displacement
-    if not use_scipy:
+
+    if use_cv2:
+        try:
+            from cv2 import warpAffine
+            order = _CV_ORDER_FLAGS[max(0,min(order,4))]
+            use_scipy = False
+        except ImportError:
+            warnings.warn("cv2.warpAffine could not be imported.",
+                          "Image rotation will default to use_scipy={}".format(use_scipy), ImportWarning)
+            use_cv2 = False
+
+    if use_cv2:
+        # needed to convert missing from np.dtype to native type
+        # required for warpAffine input
+        try:
+            missing = missing.tolist()
+        except AttributeError:
+            pass
+
+        # blurb for getting appropriate cv transform matrix
+        rmatrix = rmatrix*scale*scale
+        trans = np.eye(3,3)
+        rot_scale = np.eye(3,3)
+        trans[:2,2] = [-shift[0],-shift[1]]
+        rot_scale[:2,:2] = rmatrix.T
+        rmatrix = (rot_scale @ trans)[:2]
+
+        if issubclass(image.dtype.type, numbers.Integral):
+            warnings.warn("Integer input data has been cast to float64, "
+                          "which is required for the opencv2-image transform.",
+                          SunpyUserWarning)
+            adjusted_image = image.astype(np.float64)
+        else:
+            adjusted_image = image.copy()
+
+        h,w = adjusted_image.shape
+        rotated_image = cv2.warpAffine(adjusted_image, rmatrix, (w,h), flags=order,borderMode=cv2.BORDER_CONSTANT, borderValue=missing)
+        
+    elif not use_scipy:
         try:
             import skimage.transform
         except ImportError:
@@ -106,7 +171,7 @@ def affine_transform(image, rmatrix, order=3, scale=1.0, image_center=None,
         rotated_image = scipy.ndimage.interpolation.affine_transform(
             np.nan_to_num(image).T, rmatrix, offset=shift, order=order,
             mode='constant', cval=missing).T
-    else:
+    elif not use_cv2:
         # Make the rotation matrix 3x3 to include translation of the image
         skmatrix = np.zeros((3, 3))
         skmatrix[:2, :2] = rmatrix

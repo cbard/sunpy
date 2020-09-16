@@ -1236,7 +1236,7 @@ class GenericMap(NDData):
 
     @u.quantity_input
     def rotate(self, angle: u.deg = None, rmatrix=None, order=4, scale=1.0,
-               recenter=False, missing=0.0, use_scipy=False):
+               recenter=False, missing=0.0, use_scipy=False, use_cv2=False):
         """
         Returns a new rotated and rescaled map.
 
@@ -1278,6 +1278,12 @@ class GenericMap(NDData):
             :func:`scipy.ndimage.interpolation.affine_transform`, otherwise it
             uses the :func:`skimage.transform.warp`.
             Default: False, unless scikit-image can't be imported
+        use_cv2 : bool, optional
+            If True, forces rotation to use
+            :func:`cv2.warpAffine`, otherwise defaults to `use_scipy` behavior.
+            Will override `use_scipy`; if cv2 can't be imported, then function 
+            will default to behavior defined by `use_scipy`
+            Default: False
 
         Returns
         -------
@@ -1364,7 +1370,7 @@ class GenericMap(NDData):
                                     order=order, scale=scale,
                                     image_center=np.flipud(pixel_center),
                                     recenter=recenter, missing=missing,
-                                    use_scipy=use_scipy).T
+                                    use_scipy=use_scipy, use_cv2=use_cv2).T
 
         if recenter:
             new_reference_pixel = pixel_array_center
