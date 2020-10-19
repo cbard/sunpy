@@ -63,7 +63,7 @@ def affine_transform(image, rmatrix, order=3, scale=1.0, image_center=None,
         Defaults to `False`, unless scikit-image can't be imported.
     use_cv2 : `bool`, optional
         Force use of `cv2.warpAffine`
-        Will override `use_scipy`; if cv2 can't be imported, then function 
+        Will override `use_scipy`; if cv2 can't be imported, then function
         will default to behavior defined by `use_scipy`
 
     Returns
@@ -158,7 +158,7 @@ def affine_transform(image, rmatrix, order=3, scale=1.0, image_center=None,
 
         h,w = adjusted_image.shape
         rotated_image = cv2.warpAffine(adjusted_image, rmatrix, (w,h), flags=order,borderMode=cv2.BORDER_CONSTANT, borderValue=missing)
-        
+
     elif not use_scipy:
         try:
             import skimage.transform
